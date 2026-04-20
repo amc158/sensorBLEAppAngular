@@ -1,8 +1,16 @@
-# 📡 Firmware ESP32-S3: Sensor de Presión BLE (v1)
+# 📡 Firmware ESP32-S3: Sensor de Presión BLE (v2 - Arquitectura Modular)
 
 Este repositorio contiene el firmware (código C/ESP-IDF) para un microcontrolador ESP32-S3. Su función principal es leer un sensor de presión analógico, procesar los datos y transmitirlos de forma inalámbrica.
 
-Esta versión (`v1-lectura-media-spiffs`) es la versión monolítica funcional que incluye lectura en tiempo real y almacenamiento de medias matemáticas en memoria física.
+Esta versión evoluciona desde la estructura monolítica inicial (v1) hacia un **código modular seccionado en librerías**. Esto separa completamente la lógica en archivos de cabecera (`.h`) y archivos fuente (`.c`), facilitando enormemente el mantenimiento, la lectura y la escalabilidad del sistema.
+
+## 🏗️ Arquitectura Modular (Novedades)
+
+El código principal del programa (antes concentrado en `main.c`) ahora se divide en tres módulos independientes alojados en las carpetas `header/` y `sources/`:
+
+* 💾 **`spiffs_manager`**: Gestiona el sistema de archivos físicos, permitiendo abrir, inicializar, guardar y borrar historiales en formato JSON.
+* 📊 **`pressure_sensor`**: Configura la lectura analógica (ADC), calibra el voltaje "cero" de arranque y aplica el filtro matemático de suavizado.
+* 📶 **`bluetooth_manager`**: Controla la pila NimBLE, gestionando las conexiones, el servidor GATT, las notificaciones y la recepción de comandos en tiempo real.
 
 ## ✨ Características Principales
 
