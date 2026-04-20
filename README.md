@@ -18,9 +18,11 @@ Esta versión (`v1-lectura-media-spiffs`) es la versión monolítica funcional q
 
 ## 📱 Integración con la App Cliente
 
-⚠️ **IMPORTANTE:** Este proyecto es solo el "cerebro" (Hardware). Está diseñado para trabajar en conjunto con el repositorio hermano **`app-sensor-ble`**. 
+⚠️ **IMPORTANTE:** Este proyecto es solo el "cerebro" (Hardware). Está diseñado para trabajar en conjunto con el repositorio hermano:
 
-**`app-sensor-ble`** es la aplicación cliente desarrollada con Angular y Capacitor. Esa aplicación es la encargada de conectarse a este ESP32 y permite:
+🔗 **Repositorio de la App:** [https://github.com/ualamc158/app-sensor-ble](https://github.com/ualamc158/app-sensor-ble)
+
+**app-sensor-ble** es la aplicación cliente desarrollada con Angular y Capacitor. Esa aplicación es la encargada de conectarse a este ESP32 y permite:
 1. **Controlar el chip** (enviar los comandos de Activar/Pausar).
 2. **Visualizar** la cascada de datos en tiempo real.
 3. **Descargar y exportar** el archivo de la memoria SPIFFS a un formato de tabla legible.
