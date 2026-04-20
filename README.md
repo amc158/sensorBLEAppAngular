@@ -1,35 +1,32 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
+# 📡 Firmware ESP32-S3: Sensor de Presión BLE (v1)
 
-# _Sample project_
+Este repositorio contiene el firmware (código C/ESP-IDF) para un microcontrolador ESP32-S3. Su función principal es leer un sensor de presión analógico, procesar los datos y transmitirlos de forma inalámbrica.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+Esta versión (`v1-lectura-media-spiffs`) es la versión monolítica funcional que incluye lectura en tiempo real y almacenamiento de medias matemáticas en memoria física.
 
-This is the simplest buildable example. The example is used by command `idf.py create-project`
-that copies the project to user specified path and set it's name. For more information follow the [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project)
+## ✨ Características Principales
 
+* **Lectura de Sensor (ADC):** Lee el voltaje de un sensor de presión por el pin GPIO 4 a una frecuencia de 10Hz (10 veces por segundo).
+* **Calibración Dinámica:** Al arrancar, el chip calcula automáticamente el voltaje "cero" durante los primeros milisegundos.
+* **Transmisión Bluetooth LE (NimBLE):** Actúa como un servidor GATT enviando notificaciones constantes con la presión actual en milibares (mB).
+* **Almacenamiento Interno (SPIFFS "Caja Negra"):** Cada 2 segundos, el ESP32 calcula la media matemática de las últimas 20 lecturas y la guarda de forma segura en un archivo `data.json` dentro de su memoria Flash.
+* **Sistema de Comandos:** Acepta órdenes por Bluetooth para interactuar con él:
+  * `0`: Apagar envíos en vivo.
+  * `1`: Activar envíos en vivo.
+  * `2`: Descargar registro histórico (SPIFFS).
+  * `3`: Borrar memoria interna.
 
+## 📱 Integración con la App Cliente
 
-## How to use example
-We encourage the users to use the example as a template for the new projects.
-A recommended way is to follow the instructions on a [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project).
+⚠️ **IMPORTANTE:** Este proyecto es solo el "cerebro" (Hardware). Está diseñado para trabajar en conjunto con el repositorio hermano **`app-sensor-ble`**. 
 
-## Example folder contents
+**`app-sensor-ble`** es la aplicación cliente desarrollada con Angular y Capacitor. Esa aplicación es la encargada de conectarse a este ESP32 y permite:
+1. **Controlar el chip** (enviar los comandos de Activar/Pausar).
+2. **Visualizar** la cascada de datos en tiempo real.
+3. **Descargar y exportar** el archivo de la memoria SPIFFS a un formato de tabla legible.
+4. Funcionar de forma nativa tanto en el navegador web (**Chrome vía Web Bluetooth**) como instalada como aplicación en **Android**.
 
-The project **sample_project** contains one source file in C language [main.c](main/main.c). The file is located in folder [main](main).
-
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt`
-files that provide set of directives and instructions describing the project's source files and targets
-(executable, library, or both). 
-
-Below is short explanation of remaining files in the project folder.
-
-```
-├── CMakeLists.txt
-├── main
-│   ├── CMakeLists.txt
-│   └── main.c
-└── README.md                  This is the file you are currently reading
-```
-Additionally, the sample project contains Makefile and component.mk files, used for the legacy Make based build system. 
-They are not used or needed when building with CMake and idf.py.
+## 🛠️ Entorno de Desarrollo
+* Framework: ESP-IDF v5.3.4
+* Compilador: Xtensa ESP32-S3 Toolchain
+* Componentes principales: `nvs_flash`, `spiffs`, `esp_adc`, `nimble`, `cJSON`.
