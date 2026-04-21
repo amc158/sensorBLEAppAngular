@@ -9,6 +9,11 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+// Librerias nativas para OTA
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
+#include "esp_system.h"
+
 static const char *TAG = "BLE_MGR";
 
 // Instanciacion real de las variables globales que controlan la aplicacion
@@ -16,9 +21,32 @@ bool is_sensor_active = false;
 bool is_spiffs_dump_requested = false;
 bool is_spiffs_clear_requested = false;
 
+// Variables de estado OTA
+static esp_ota_handle_t ota_handle = 0;
+static const esp_partition_t *update_partition = NULL;
+
 // Variables internas de conexion BLE
 static uint16_t gatt_pressure_handle;           
 static uint16_t ble_connection_handle = 0xFFFF; // 0xFFFF significa "Desconectado"     
+
+
+// ---------------------------------------------------------
+// CALLBACKS DE LECTURA/ESCRITURA (GATT)
+// ---------------------------------------------------------
+
+// Callback exclusivo para recibir fragmentos del archivo .bin a maxima velocidad
+static int gatt_ota_data_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (ota_handle != 0) {
+            // Escribe directamente a la memoria Flash sin pasar por SPIFFS
+            esp_err_t err = esp_ota_write(ota_handle, ctxt->om->om_data, ctxt->om->om_len);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error escribiendo OTA: %s", esp_err_to_name(err));
+            }
+        }
+    }
+    return 0;
+}
 
 // Funcion de devolucion de llamada (Callback) cuando Angular escribe un dato (Comandos)
 static int gatt_svr_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -39,24 +67,65 @@ static int gatt_svr_access(uint16_t conn_handle, uint16_t attr_handle, struct bl
         } else if (cmd == 3) {
             is_spiffs_clear_requested = true;
             ESP_LOGI(TAG, "Comando recibido desde Angular: BORRAR SPIFFS");
+        } else if (cmd == 4) {
+            ESP_LOGI(TAG, "Iniciando proceso OTA...");
+            is_sensor_active = false; // Pausamos lecturas por seguridad
+            update_partition = esp_ota_get_next_update_partition(NULL);
+            if (update_partition != NULL) {
+                esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
+                ESP_LOGI(TAG, "Particion OTA lista.");
+            } else {
+                ESP_LOGE(TAG, "No se encontro particion OTA valida.");
+            }
+        } else if (cmd == 5) {
+            ESP_LOGI(TAG, "Finalizando OTA y reiniciando...");
+            if (esp_ota_end(ota_handle) == ESP_OK) {
+                esp_err_t err = esp_ota_set_boot_partition(update_partition);
+                if (err == ESP_OK) {
+                    ESP_LOGI(TAG, "OTA Exitoso! Reiniciando en 1 seg...");
+                    vTaskDelay(1000 / portTICK_PERIOD_MS);
+                    esp_restart();
+                } else {
+                    ESP_LOGE(TAG, "Fallo al asignar particion de booteo");
+                }
+            } else {
+                ESP_LOGE(TAG, "Fallo en verificación de imagen OTA. (Corrupto)");
+            }
+            ota_handle = 0; // Reseteamos handle por seguridad
         }
     }
     return 0;
 }
 
-// Estructura de definicion de Servicios y Caracteristicas (GATT)
+
+// ---------------------------------------------------------
+// DEFINICIÓN DE SERVICIOS Y CARACTERÍSTICAS
+// ---------------------------------------------------------
+
 static const struct ble_gatt_svc_def gatt_svcs[] = {
     {.type = BLE_GATT_SVC_TYPE_PRIMARY,
      // UUID del Servicio Principal
      .uuid = BLE_UUID128_DECLARE(0x78,0x56,0x34,0x12,0x34,0x12,0x78,0x56,0x34,0x12,0x78,0x56,0x34,0x12,0x78,0x56),
      .characteristics = (struct ble_gatt_chr_def[]) {
          {
-          // UUID de la Caracteristica (Lectura/Escritura/Notificacion)
+          // CARACTERÍSTICA 1 (Comandos generales y Notificaciones del Sensor)
           .uuid = BLE_UUID128_DECLARE(0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x21),
-          .access_cb = gatt_svr_access, // Funcion que se dispara al interactuar
+          .access_cb = gatt_svr_access, 
           .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-          .val_handle = &gatt_pressure_handle, // Referencia para enviar notificaciones luego
-         }, {0}}}, {0}};
+          .val_handle = &gatt_pressure_handle, 
+         },
+         {
+          // CARACTERÍSTICA 2 (Exclusiva para recibir fragmentos OTA rápidamente sin respuesta)
+          .uuid = BLE_UUID128_DECLARE(0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x21,0x87,0x65,0x43,0x31),
+          .access_cb = gatt_ota_data_access,
+          .flags = BLE_GATT_CHR_F_WRITE_NO_RSP, 
+         }, 
+         {0}}}, {0}};
+
+
+// ---------------------------------------------------------
+// CONTROLADORES DE CONEXIÓN Y ANUNCIAMIENTO
+// ---------------------------------------------------------
 
 // Pre-declaracion necesaria para NimBLE
 void ble_app_on_sync(void); 
@@ -113,6 +182,11 @@ void initialize_bluetooth(void) {
     ble_hs_cfg.sync_cb = ble_app_on_sync;
     nimble_port_freertos_init(host_task);
 }
+
+
+// ---------------------------------------------------------
+// FUNCIONES DE ENVÍO DE DATOS
+// ---------------------------------------------------------
 
 void send_ble_data(float value) {
     // Si hay un movil conectado, le enviamos el flotante por notificacion

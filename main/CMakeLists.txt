@@ -4,5 +4,5 @@ idf_component_register(
          "sources/pressure_sensor.c" 
          "sources/bluetooth_manager.c"
     INCLUDE_DIRS "." "header" 
-    PRIV_REQUIRES json esp_adc spiffs nvs_flash bt
+    PRIV_REQUIRES json esp_adc spiffs nvs_flash bt app_update
 )
