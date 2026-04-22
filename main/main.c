@@ -5,6 +5,8 @@
 #include "nvs_flash.h"
 #include "cJSON.h"
 
+// #include "esp_random.h" // Libreria para engañar al compilador
+
 // Archivos de Cabecera (Librerías Modulares)
 #include "spiffs_manager.h"
 #include "pressure_sensor.h"
@@ -12,7 +14,27 @@
 
 static const char *TAG = "MAIN_APP";
 
+// --- INICIO DEL RELLENO MASIVO PARA OTA ---
+// Creamos un array de 600,000 bytes (600 KB) llenos del valor hexadecimal 0x02.
+// const uint8_t dummy_firmware_payload[600000] __attribute__((used)) = { 
+//     [0 ... 599999] = 0x02 
+// };
+// --- FIN DEL RELLENO ---
+
 void app_main(void) {
+    // // 1. Generamos un número aleatorio entre 0 y 599999
+    // uint32_t indice_aleatorio = esp_random() % 600000;
+    
+    // // 2. Leemos el array usando ese índice. Al ser 'volatile', el compilador no puede borrarlo.
+    // volatile uint8_t byte_leido = dummy_firmware_payload[indice_aleatorio];
+
+    // // Mensaje destacado de la V2 en la terminal
+    // ESP_LOGI(TAG, "=============================================");
+    // ESP_LOGI(TAG, " 🚀 INICIANDO FIRMWARE: VERSION 2 ");
+    // ESP_LOGI(TAG, " 📦 Tamaño de relleno OTA: %zu bytes", sizeof(dummy_firmware_payload));
+    // ESP_LOGI(TAG, " 🔒 Test anti-borrado (Byte %lu): %02X", indice_aleatorio, byte_leido);
+    // ESP_LOGI(TAG, "=============================================");
+
     // Inicializar memoria base (Requerido por Bluetooth y WiFi)
     nvs_flash_init(); 
 
