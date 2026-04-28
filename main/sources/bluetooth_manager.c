@@ -68,6 +68,14 @@ void request_fast_connection(uint16_t conn_handle)
 // ---------------------------------------------------------
 // TAREA DE ESCRITURA EN FLASH EN SEGUNDO PLANO
 // ---------------------------------------------------------
+
+// Tarea independiente para reiniciar el chip sin bloquear el Bluetooth
+void delayed_reboot_task(void *pvParameter)
+{
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Espera 1 segundo
+    esp_restart();                   // Reinicia el chip
+}
+
 // Esta función corre en su propio núcleo/hilo, separada del hilo de Bluetooth.
 void ota_writer_task(void *pvParameter)
 {
@@ -243,29 +251,27 @@ static int gatt_svr_access(uint16_t conn_handle, uint16_t attr_handle, struct bl
                 }
 
                 // 3. Cerramos el proceso OTA.
-                // internamente, esp_ota_end calcula el Hash Criptográfico SHA-256
-                // de la imagen completa para asegurar que no se corrompió ni un bit.
                 if (esp_ota_end(ota_handle) == ESP_OK)
                 {
-                    // Marcamos la partición nueva como "Boteable" para el próximo encendido
                     esp_ota_set_boot_partition(update_partition);
                     ESP_LOGI(TAG, "OTA Completo. Reiniciando en 1 segundo...");
                     
-                    // Limpieza de memoria RAM asignada al Ringbuffer
                     if (ota_ringbuf != NULL) {
                         vRingbufferDelete(ota_ringbuf);
                         ota_ringbuf = NULL;
                     }
                     
-                    // Pausa vital: Permite a NimBLE mandar un ACK (OK) al móvil confirmando 
-                    // la recepción del comando 5, evitando un fallo de conexión por reinicio brusco.
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-                    esp_restart();
+                    // --- LA MAGIA ---
+                    // Lanzamos la tarea de reinicio en segundo plano.
+                    // Esto permite que el hilo del Bluetooth no se bloquee, llegue
+                    // al "return 0" de abajo y le mande el "OK" a la app de Angular.
+                    xTaskCreate(delayed_reboot_task, "reboot_task", 2048, NULL, 5, NULL);
                 }
                 else 
                 {
-                    // Si el SHA-256 falla (datos perdidos o desordenados), aborta.
                     ESP_LOGE(TAG, "Error finalizando OTA. Firma o tamaño incorrecto.");
+                    ota_handle = 0;
+                    return 0x05; // Devolvemos error nativo al móvil
                 }
                 
                 ota_handle = 0;
@@ -373,6 +379,7 @@ void initialize_bluetooth(void)
 {
     nimble_port_init();
     ble_svc_gap_device_name_set("ESP32S3_PRESION"); // Nombre visible en el escáner
+    // ble_svc_gap_device_name_set("ESP32S3_V2");
     ble_svc_gap_init();
     ble_svc_gatt_init();
     
