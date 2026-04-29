@@ -106,10 +106,19 @@ void ota_writer_task(void *pvParameter)
             // ese espacio en la RAM para que la interrupción Bluetooth pueda seguir escribiendo.
             vRingbufferReturnItem(ota_ringbuf, (void *)item);
 
-            // Cuando llenamos exactamente los 4KB, volcamos a Flash y reseteamos el contador.
+            // Cuando llenamos exactamente los 4KB, volcamos a Flash
             if (write_idx == 4096)
             {
-                esp_ota_write(ota_handle, write_buf, 4096);
+                // --- SOLUCIÓN: CONTROL DE ERRORES DE ESCRITURA ---
+                esp_err_t err = esp_ota_write(ota_handle, write_buf, 4096);
+                if (err != ESP_OK) 
+                {
+                    ESP_LOGE(TAG, "Error fatal de escritura en Flash (%s). Abortando tarea...", esp_err_to_name(err));
+                    // Si el archivo está corrupto, paramos de escribir inmediatamente
+                    // para no inundar el log ni destrozar la partición inútilmente.
+                    ota_is_finished = true; 
+                    break; 
+                }
                 write_idx = 0;
             }
         }
@@ -320,28 +329,48 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) // 0 significa conexión exitosa
         {
             ble_connection_handle = event->connect.conn_handle;
-            
-            // Forzamos latencia mínima.
             request_fast_connection(ble_connection_handle);
-            
-            // DLE (Data Length Extension): Modifica el hardware de la radio para poder enviar 
-            // paquetes físicos en el aire de 251 bytes (en lugar del obsoleto límite de 27 bytes).
             ble_gap_set_data_len(ble_connection_handle, 251, 2120);
-            
-            // MTU (Maximum Transmission Unit): Fuerza al móvil maestro a incrementar 
-            // el tamaño lógico de la capa de protocolo L2CAP.
-            // Al forzarlo el ESP32, evitamos usar peticiones en Angular.
             ble_gattc_exchange_mtu(ble_connection_handle, NULL, NULL);
         }
         else
         {
-            // Fallo en conexión, volvemos a modo publicidad.
             ble_app_on_sync();
         }
         break;
+
     case BLE_GAP_EVENT_DISCONNECT:
-        // Si el cliente se va, marcamos desconectado y volvemos a emitir publicidad.
-        ble_connection_handle = 0xFFFF;
+        ble_connection_handle = 0xFFFF; // Marcamos como desconectado
+
+        // --- SISTEMA DE LIMPIEZA ANTI-CORTES (NUEVO) ---
+        // Si el ota_handle no es 0, significa que se cortó el Bluetooth en mitad de una descarga.
+        if (ota_handle != 0) 
+        {
+            ESP_LOGW(TAG, "⚠️ Conexión perdida durante OTA. Abortando y limpiando sistema...");
+
+            // 1. Mandamos la señal de apagado a la tarea que escribe en Flash
+            ota_is_finished = true;
+
+            // 2. Esperamos pacientemente a que la tarea termine lo que estaba haciendo y se suicide
+            while (!ota_task_exited) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+
+            // 3. Destruimos el proceso OTA a nivel de hardware.
+            // Esto invalida la partición y borra los datos parciales para evitar corrupciones.
+            esp_ota_abort(ota_handle);
+            ota_handle = 0; // Reseteamos el puntero
+
+            // 4. Limpiamos la memoria RAM (el Ringbuffer) para que no haya fugas
+            if (ota_ringbuf != NULL) {
+                vRingbufferDelete(ota_ringbuf);
+                ota_ringbuf = NULL;
+            }
+
+            ESP_LOGI(TAG, "🧹 Limpieza OTA completada. Dispositivo listo de nuevo.");
+        }
+
+        // Volvemos a emitir publicidad para que el usuario pueda reconectarse
         ble_app_on_sync();
         break;
     }
